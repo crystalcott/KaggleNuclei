@@ -6,4 +6,4 @@ Establishing this log
 
 # Week 5 
 Insalled Anaconda and VSCode on new machine
-Set up VS code to commit to GitHub
+Set up VS code to commit to GitHub 
