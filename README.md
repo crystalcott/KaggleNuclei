@@ -7,3 +7,4 @@ Establishing this log
 # Week 5 
 Insalled Anaconda and VSCode on new machine
 Set up VS code to commit to GitHub 
+Testing without GitHub extention
