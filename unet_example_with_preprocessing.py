@@ -13,6 +13,7 @@ from itertools import chain
 from skimage.io import imread, imshow, imread_collection, concatenate_images
 from skimage.transform import resize
 from skimage.morphology import label
+import cv2
 
 from keras.models import Model, load_model
 from keras.layers import Input
@@ -41,8 +42,29 @@ np.random.seed = seed
 train_ids = next(os.walk(TRAIN_PATH))[1]
 test_ids = next(os.walk(TEST_PATH))[1]
 
+def clahe(image):  
+    image = image.astype(np.uint8)
+    # do clache
+    grid_size = 8
+    bgr = image[:,:,[2,1,0]] # flip r and b
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    lab[:,:,0] = clahe.apply(lab[:,:,0])
+    bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    image = bgr[:,:,[2,1,0]]
+    
+    # just l
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    image = clahe.apply(lab[:,:,0])
+
+    if np.mean(image) > 127:
+        image = cv2.bitwise_not(image)
+    
+    return image
+
 # Get and resize train images and masks
-X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
+X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.uint8)
 Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
 print('Getting and resizing train images and masks ... ')
 sys.stdout.flush()
@@ -50,7 +72,7 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
     path = TRAIN_PATH + id_
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_train[n] = img
+    X_train[n] = clahe(img).reshape(IMG_HEIGHT, IMG_WIDTH, 1)
     mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
     for mask_file in next(os.walk(path + '/masks/'))[2]:
         mask_ = imread(path + '/masks/' + mask_file)
@@ -60,24 +82,25 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
     Y_train[n] = mask
 
 # Get and resize test images
-X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
+X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.uint8)
 sizes_test = []
 print('Getting and resizing test images ... ')
 sys.stdout.flush()
 for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
     path = TEST_PATH + id_
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
+    img=img.astype(np.uint8)
     sizes_test.append([img.shape[0], img.shape[1]])
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_test[n] = img
+    X_test[n] = clahe(img).reshape(IMG_HEIGHT, IMG_WIDTH, 1)
 
 print('Done!')
 
 # Check if training data looks all right
 ix = random.randint(0, len(train_ids))
-imshow(X_train[ix])
+imshow(X_train[ix].reshape(IMG_HEIGHT, IMG_WIDTH))
 plt.show()
-imshow(np.squeeze(Y_train[ix]))
+imshow(np.squeeze(Y_train[ix].reshape(IMG_HEIGHT, IMG_WIDTH)))
 plt.show()
 
 # Define IoU metric
@@ -94,7 +117,7 @@ def mean_iou(y_true, y_pred):
 
 print('Building Model...')
 # Build U-Net model
-inputs = Input((IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS))
+inputs = Input((IMG_HEIGHT, IMG_WIDTH, 1))
 s = Lambda(lambda x: x / 255) (inputs)
 
 c1 = Conv2D(16, (3, 3), activation='elu', kernel_initializer='he_normal', padding='same') (s)
@@ -176,22 +199,22 @@ for i in range(len(preds_test)):
                                        (sizes_test[i][0], sizes_test[i][1]), 
                                        mode='constant', preserve_range=True))
 
-# Perform a sanity check on some random training samples
+# # Perform a sanity check on some random training samples
 ix = random.randint(0, len(preds_train_t))
-imshow(X_train[ix])
+imshow(X_train[ix].reshape(IMG_HEIGHT, IMG_WIDTH))
 plt.show()
-imshow(np.squeeze(Y_train[ix]))
+imshow(np.squeeze(Y_train[ix].reshape(IMG_HEIGHT, IMG_WIDTH)))
 plt.show()
-imshow(np.squeeze(preds_train_t[ix]))
+imshow(np.squeeze(preds_train_t[ix].reshape(IMG_HEIGHT, IMG_WIDTH)))
 plt.show() 
 
-# Perform a sanity check on some random validation samples
+# # Perform a sanity check on some random validation samples
 ix = random.randint(0, len(preds_val_t))
-imshow(X_train[int(X_train.shape[0]*0.9):][ix])
+imshow(X_train[int(X_train.shape[0]*0.9):][ix].reshape(IMG_HEIGHT, IMG_WIDTH))
 plt.show()
-imshow(np.squeeze(Y_train[int(Y_train.shape[0]*0.9):][ix]))
+imshow(np.squeeze(Y_train[int(Y_train.shape[0]*0.9):][ix].reshape(IMG_HEIGHT, IMG_WIDTH)))
 plt.show()
-imshow(np.squeeze(preds_val_t[ix]))
+imshow(np.squeeze(preds_val_t[ix].reshape(IMG_HEIGHT, IMG_WIDTH)))
 plt.show()
 
 # Run-length encoding stolen from https://www.kaggle.com/rakhlin/fast-run-length-encoding-python

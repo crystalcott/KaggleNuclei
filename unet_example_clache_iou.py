@@ -13,6 +13,7 @@ from itertools import chain
 from skimage.io import imread, imshow, imread_collection, concatenate_images
 from skimage.transform import resize
 from skimage.morphology import label
+import cv2
 
 from keras.models import Model, load_model
 from keras.layers import Input
@@ -21,6 +22,7 @@ from keras.layers.convolutional import Conv2D, Conv2DTranspose
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.merge import concatenate
 from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.losses import binary_crossentropy
 from keras import backend as K
 
 import tensorflow as tf
@@ -41,6 +43,18 @@ np.random.seed = seed
 train_ids = next(os.walk(TRAIN_PATH))[1]
 test_ids = next(os.walk(TEST_PATH))[1]
 
+def clache(image):
+    image = image.astype(np.uint8)
+    grid_size = 8
+    bgr = image[:,:,[2,1,0]] # flip r and b
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    lab[:,:,0] = clahe.apply(lab[:,:,0])
+    bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    image = bgr[:,:,[2,1,0]]
+
+    return image
+
 # Get and resize train images and masks
 X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
@@ -50,7 +64,7 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
     path = TRAIN_PATH + id_
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_train[n] = img
+    X_train[n] = clache(img)
     mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
     for mask_file in next(os.walk(path + '/masks/'))[2]:
         mask_ = imread(path + '/masks/' + mask_file)
@@ -69,7 +83,7 @@ for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
     sizes_test.append([img.shape[0], img.shape[1]])
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_test[n] = img
+    X_test[n] = clache(img)
 
 print('Done!')
 
@@ -81,9 +95,9 @@ imshow(np.squeeze(Y_train[ix]))
 plt.show()
 
 # Define IoU metric
-def mean_iou(y_true, y_pred):
+def my_iou_metric(y_true, y_pred):
     prec = []
-    for t in np.arange(0.5, 1.0, 0.05):
+    for t in np.arange(0.5, 1.0, 0.05):     
         y_pred_ = tf.to_int32(y_pred > t)
         score, up_opt = tf.metrics.mean_iou(y_true, y_pred_, 2)
         K.get_session().run(tf.local_variables_initializer())
@@ -91,6 +105,114 @@ def mean_iou(y_true, y_pred):
             score = tf.identity(score)
         prec.append(score)
     return K.mean(K.stack(prec), axis=0)
+
+def dice_coef(y_true, y_pred):
+    smooth = 1.
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+
+def bce_dice_loss(y_true, y_pred):
+    return 0.5 * binary_crossentropy(y_true, y_pred) - dice_coef(y_true, y_pred)
+
+
+# def iou_metric(y_true_in, y_pred_in, print_table=False):
+    
+#     # true_objects = len(np.unique(labels))
+#     # pred_objects = len(np.unique(y_pred))# Compute number of objects
+
+#     labels = label(y_true_in)
+#     y_pred = label(y_pred_in)
+
+#     num_true = len(labels)
+#     num_pred = len(y_pred)
+#     # print("Number of true objects:", num_true)
+#     # print("Number of predicted objects:", num_pred)
+
+#     # Compute iou score for each prediction
+#     iou = []
+#     for pr in range(num_pred):
+#         bol = 0  # best overlap
+#         bun = 1e-9  # corresponding best union
+#         for tr in range(num_true):
+#             olap = y_pred[pr] * labels[tr]  # Intersection points
+#             osz = np.sum(olap)  # Add the intersection points to see size of overlap
+#             if osz > bol:  # Choose the match with the biggest overlap
+#                 bol = osz
+#                 bun = np.sum(np.maximum(y_pred[pr], labels[tr]))  # Union formed with sum of maxima
+#         iou.append(bol / bun)
+
+#     # Loop over IoU thresholds
+#     p = 0
+#     #print("Thresh\tTP\tFP\tFN\tPrec.")
+#     for t in np.arange(0.5, 1.0, 0.05):
+#         matches = iou > t
+#         tp = np.count_nonzero(matches)  # True positives
+#         fp = num_pred - tp  # False positives
+#         fn = num_true - tp  # False negatives
+#         p += tp / (tp + fp + fn)
+#         #print("{:1.3f}\t{}\t{}\t{}\t{:1.3f}".format(t, tp, fp, fn, tp / (tp + fp + fn)))
+# #print("AP\t-\t-\t-\t{:1.3f}".format(p / 10))
+#     return p / 10
+
+#     # intersection = np.histogram2d(labels.flatten(), y_pred.flatten(), bins=(true_objects, pred_objects))[0]
+
+#     # # Compute areas (needed for finding the union between all objects)
+#     # area_true = np.histogram(labels, bins = true_objects)[0]
+#     # area_pred = np.histogram(y_pred, bins = pred_objects)[0]
+#     # area_true = np.expand_dims(area_true, -1)
+#     # area_pred = np.expand_dims(area_pred, 0)
+
+#     # # Compute union
+#     # union = area_true + area_pred - intersection
+
+#     # # Exclude background from the analysis
+#     # intersection = intersection[1:,1:]  
+#     # union = union[1:,1:]
+#     # union[union == 0] = 1e-9
+
+#     # # Compute the intersection over union
+#     # iou = intersection / union
+
+#     # # Precision helper function
+#     # def precision_at(threshold, iou):
+#     #     matches = iou > threshold
+#     #     true_positives = np.sum(matches, axis=1) == 1   # Correct objects
+#     #     false_positives = np.sum(matches, axis=0) == 0  # Missed objects
+#     #     false_negatives = np.sum(matches, axis=1) == 0  # Extra objects
+#     #     tp, fp, fn = np.sum(true_positives), np.sum(false_positives), np.sum(false_negatives)
+#     #     return tp, fp, fn
+
+#     # # Loop over IoU thresholds
+#     # prec = []
+#     # if print_table:
+#     #     print("Thresh\tTP\tFP\tFN\tPrec.")
+#     # for t in np.arange(0.5, 1.0, 0.05):
+#     #     tp, fp, fn = precision_at(t, iou)
+#     #     if (tp + fp + fn) > 0:
+#     #         p = tp / (tp + fp + fn)
+#     #     else:
+#     #         p = 0
+#     #     if print_table:
+#     #         print("{:1.3f}\t{}\t{}\t{}\t{:1.3f}".format(t, tp, fp, fn, p))
+#     #     prec.append(p)
+    
+#     # if print_table:
+#     #     print("AP\t-\t-\t-\t{:1.3f}".format(np.mean(prec)))
+#     # return np.mean(prec)
+
+# def iou_metric_batch(y_true_in, y_pred_in):
+#     batch_size = y_true_in.shape[0]
+#     metric = []
+#     for batch in range(batch_size):
+#         value = iou_metric(y_true_in[batch], y_pred_in[batch])
+#         metric.append(value)
+#     return np.array(np.mean(metric), dtype=np.float32)
+
+# def my_iou_metric(label, pred):
+#     metric_value = tf.py_func(iou_metric_batch, [label, pred], tf.float32)
+#     return metric_value
 
 print('Building Model...')
 # Build U-Net model
@@ -148,7 +270,7 @@ c9 = Conv2D(16, (3, 3), activation='elu', kernel_initializer='he_normal', paddin
 outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)
 
 model = Model(inputs=[inputs], outputs=[outputs])
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[mean_iou])
+model.compile(optimizer='adam', loss=bce_dice_loss, metrics=[my_iou_metric])
 model.summary()    
 
 print('Fitting Model...')
@@ -159,7 +281,7 @@ results = model.fit(X_train, Y_train, validation_split=0.1, batch_size=16, epoch
                     callbacks=[earlystopper, checkpointer])
 
 # Predict on train, val and test
-model = load_model('../models/model-dsbowl2018-3.h5', custom_objects={'mean_iou': mean_iou})
+model = load_model('../models/model-dsbowl2018-3.h5', custom_objects={'my_iou_metric': my_iou_metric, 'bce_dice_loss': bce_dice_loss})
 preds_train = model.predict(X_train[:int(X_train.shape[0]*0.9)], verbose=1)
 preds_val = model.predict(X_train[int(X_train.shape[0]*0.9):], verbose=1)
 preds_test = model.predict(X_test, verbose=1)
