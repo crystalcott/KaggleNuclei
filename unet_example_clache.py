@@ -13,6 +13,7 @@ from itertools import chain
 from skimage.io import imread, imshow, imread_collection, concatenate_images
 from skimage.transform import resize
 from skimage.morphology import label
+import cv2
 
 from keras.models import Model, load_model
 from keras.layers import Input
@@ -41,6 +42,18 @@ np.random.seed = seed
 train_ids = next(os.walk(TRAIN_PATH))[1]
 test_ids = next(os.walk(TEST_PATH))[1]
 
+def clache(image):
+    image = image.astype(np.uint8)
+    grid_size = 8
+    bgr = image[:,:,[2,1,0]] # flip r and b
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    lab[:,:,0] = clahe.apply(lab[:,:,0])
+    bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    image = bgr[:,:,[2,1,0]]
+
+    return image
+
 # Get and resize train images and masks
 X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
@@ -50,7 +63,7 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
     path = TRAIN_PATH + id_
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_train[n] = img
+    X_train[n] = clache(img)
     mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
     for mask_file in next(os.walk(path + '/masks/'))[2]:
         mask_ = imread(path + '/masks/' + mask_file)
@@ -69,7 +82,7 @@ for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
     img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
     sizes_test.append([img.shape[0], img.shape[1]])
     img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_test[n] = img
+    X_test[n] = clache(img)
 
 print('Done!')
 
@@ -83,7 +96,7 @@ plt.show()
 # Define IoU metric
 def mean_iou(y_true, y_pred):
     prec = []
-    for t in np.arange(0.5, 1.0, 0.05):
+    for t in np.arange(0.5, 1.0, 0.05):     
         y_pred_ = tf.to_int32(y_pred > t)
         score, up_opt = tf.metrics.mean_iou(y_true, y_pred_, 2)
         K.get_session().run(tf.local_variables_initializer())
