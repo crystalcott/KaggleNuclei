@@ -35,9 +35,9 @@ TRAIN_PATH = '../input/stage1_train/'
 TEST_PATH = '../input/stage1_test/'
 
 warnings.filterwarnings('ignore', category=UserWarning, module='skimage')
-# seeda = 42
-# random.seed = seeda
-# np.random.seed = seeda
+seed = 42
+random.seed = seed
+np.random.seed = seed
 
 # Get train and test IDs
 train_ids = next(os.walk(TRAIN_PATH))[1]
@@ -90,47 +90,6 @@ for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
 
 print('Done!')
 
-from keras.preprocessing.image import ImageDataGenerator
-from sklearn.model_selection import train_test_split
-
-def generator(xtr, xval, ytr, yval, batch_size):
-    seedy = 17
-    data_gen_args = dict(horizontal_flip=True,
-                         vertical_flip=True,
-                         rotation_range=90.,
-                         width_shift_range=0.1,
-                         height_shift_range=0.1,
-                         zoom_range=0.1,
-                         fill_mode='reflect')
-    image_datagen = ImageDataGenerator(**data_gen_args)
-    mask_datagen = ImageDataGenerator(**data_gen_args)
-    image_datagen.fit(xtr, seed=seedy)
-    mask_datagen.fit(ytr, seed=seedy)
-    image_generator = image_datagen.flow(xtr, batch_size=batch_size, seed=seedy)
-    mask_generator = mask_datagen.flow(ytr, batch_size=batch_size, seed=seedy)
-    train_generator = zip(image_generator, mask_generator)
-
-    val_gen_args = dict()
-    image_datagen_val = ImageDataGenerator(**val_gen_args)
-    mask_datagen_val = ImageDataGenerator(**val_gen_args)
-    image_datagen_val.fit(xval, seed=seedy)
-    mask_datagen_val.fit(yval, seed=seedy)
-    image_generator_val = image_datagen_val.flow(xval, batch_size=batch_size, seed=seedy)
-    mask_generator_val = mask_datagen_val.flow(yval, batch_size=batch_size, seed=seedy)
-    val_generator = zip(image_generator_val, mask_generator_val)
-
-    return train_generator, val_generator
-
-batch_size = 16
-xtr, xval, ytr, yval = train_test_split(X_train, Y_train, test_size=0.1, random_state=7)
-train_generator, val_generator = generator(xtr, xval, ytr, yval, batch_size)
-
-# # Check if training data looks all right
-# ix = random.randint(0, len(train_ids))
-# imshow(X_train[ix])
-# plt.show()
-# imshow(np.squeeze(Y_train[ix]))
-# plt.show()
 def iou_metric(y_true_in, y_pred_in, print_table=False):
     
     # true_objects = len(np.unique(labels))
@@ -310,11 +269,8 @@ print('Fitting Model...')
 # Fit model
 earlystopper = EarlyStopping(patience=5, verbose=1)
 checkpointer = ModelCheckpoint('../models/model-dsbowl2018-3.h5', verbose=1, save_best_only=True)
-# results = model.fit(X_train, Y_train, validation_split=0.1, batch_size=16, epochs=50, 
-#                     callbacks=[earlystopper, checkpointer])
-model.fit_generator(train_generator, steps_per_epoch=len(xtr)/6, epochs=50,
-                        validation_data=val_generator, validation_steps=len(xval)/batch_size,
-                        callbacks=[earlystopper, checkpointer])
+results = model.fit(X_train, Y_train, validation_split=0.1, batch_size=16, epochs=50, 
+                    callbacks=[earlystopper, checkpointer])
 
 # Predict on train, val and test
 model = load_model('../models/model-dsbowl2018-3.h5', custom_objects={'my_iou_metric': my_iou_metric})
