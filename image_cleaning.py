@@ -97,7 +97,7 @@ def rgb_clahe(in_rgb_img):
     bgr = in_rgb_img[:,:,[2,1,0]] # flip r and b
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
-    lab[:,:,0] = clahe.apply(lab[:,:,0])
+    lab[0,:,:] = clahe.apply(lab[0,:,1])
     bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
     return bgr[:,:,[2,1,0]]
 
@@ -110,12 +110,37 @@ def rgb_clahe_justl(in_rgb_img):
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
     return clahe.apply(lab[:,:,0])
-tiny_img_df['clahe_justl'] = tiny_img_df['images'].map(rgb_clahe_justl)
 
-show_test_img(tiny_img_df, 'clahe_justl')
+def rgb_clahe_justa(in_rgb_img): 
+    bgr = in_rgb_img[:,:,[2,1,0]] # flip r and b
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    return clahe.apply(lab[:,:,1])
+
+def rgb_clahe_justb(in_rgb_img): 
+    bgr = in_rgb_img[:,:,[2,1,0]] # flip r and b
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(grid_size,grid_size))
+    return clahe.apply(lab[:,:,2])
+
+tiny_img_df['clahe_justl'] = tiny_img_df['images'].map(rgb_clahe_justl)
+tiny_img_df['clahe_justa'] = tiny_img_df['images'].map(rgb_clahe_justa)
+tiny_img_df['clahe_justb'] = tiny_img_df['images'].map(rgb_clahe_justb)
 
 tiny_img_df['clahe_justl_flip'] = tiny_img_df['clahe_justl'].map(lambda x: 255-x if x.mean()>127 else x)
 
+tiny_img_df['clahe_justa_flip'] = tiny_img_df['clahe_justa'].map(lambda x: 255-x if x.mean()>127 else x)
+
+tiny_img_df['clahe_justb_flip'] = tiny_img_df['clahe_justb'].map(lambda x: 255-x if x.mean()>127 else x)
+
+show_test_img(tiny_img_df, 'clahe_justl')
 show_test_img(tiny_img_df, 'clahe_justl_flip')
+
+show_test_img(tiny_img_df, 'clahe_justa')
+show_test_img(tiny_img_df, 'clahe_justa_flip')
+
+show_test_img(tiny_img_df, 'clahe_justb')
+show_test_img(tiny_img_df, 'clahe_justb_flip')
+
 
 print('Done!')
